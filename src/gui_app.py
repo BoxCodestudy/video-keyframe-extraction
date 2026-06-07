@@ -1,8 +1,14 @@
 """Application framework — window, page switching, queue polling."""
+import sys
+from pathlib import Path
+
+# Allow running as both `python src/gui_app.py` and `python -m src.gui_app`
+if __package__ is None:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import logging
 import queue
 import tkinter as tk
-from pathlib import Path
 
 from src.config import (AppConfig, ProcessingConfig, SURFACE_COLOR,
                         LOG_DIR, PROGRESS_POLL_MS, load_app_config)
@@ -88,7 +94,5 @@ class VideoProcessorApp:
 
 
 if __name__ == "__main__":
-    import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     app = VideoProcessorApp()
     app.run()
