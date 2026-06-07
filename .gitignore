@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.vscode/
+.idea/
+temp/
+output/
+logs/
+*.log
+.superpowers/
+.env
