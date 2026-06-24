@@ -62,7 +62,7 @@ class MainPage(tk.Frame):
         # ── Top Bar ──
         topbar = tk.Frame(self, bg=PANEL_COLOR)
         topbar.pack(fill="x")
-        tk.Label(topbar, text="◈ 视频关键帧筛选与重构系统", bg=PANEL_COLOR, fg=ACCENT_COLOR,
+        tk.Label(topbar, text="◈ 基于深度特征聚类的视频关键帧提取与事件检测系统", bg=PANEL_COLOR, fg=ACCENT_COLOR,
                  font=("Microsoft YaHei", 13, "bold")).pack(side="left", padx=16, pady=10)
         btn_frame = tk.Frame(topbar, bg=PANEL_COLOR)
         btn_frame.pack(side="right", padx=12, pady=8)

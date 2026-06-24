@@ -16,7 +16,7 @@ from src.gui_main import MainPage
 from src.gui_settings import SettingsPage
 from src.utils import setup_logging
 
-APP_TITLE = "视频关键帧筛选与重构系统"
+APP_TITLE = "基于深度特征聚类的视频关键帧提取与事件检测系统"
 
 
 class VideoProcessorApp:

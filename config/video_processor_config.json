@@ -1,0 +1,12 @@
+{
+  "output_path": "D:\\All_Python\\Project\\torch_env_3\\output",
+  "temp_path": "D:\\All_Python\\Project\\torch_env_3\\temp",
+  "sample_stride": 10,
+  "intrusion_threshold": 0.45,
+  "min_event_duration": 0.5,
+  "motion_weight": 0.65,
+  "person_weight": 0.35,
+  "max_width": 960,
+  "auto_open_output": true,
+  "remember_last_output": true
+}
