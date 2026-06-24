@@ -1,5 +1,6 @@
 """Main processing page — video pipeline UI."""
 import logging
+import os
 import queue
 import threading
 import time as _time_module
@@ -17,7 +18,9 @@ from src.config import (AppConfig, ProcessingConfig, AnalysisResult, VideoMetada
 from src.detection import detect_intrusion_events, map_events_to_image_files
 from src.features import CNNFeatureExtractor
 from src.keyframes import auto_select_keyframes_by_clustering
-from src.video_io import get_video_metadata, video_to_images
+from src.video_io import (get_video_metadata, video_to_images,
+                          generate_video_from_segments, build_segments_from_events,
+                          export_intrusion_clips, build_export_paths, write_export_manifest)
 from src.utils import format_seconds, list_image_files
 
 
@@ -54,6 +57,8 @@ class MainPage(tk.Frame):
 
         self.log_expanded = tk.BooleanVar(value=True)
         self._preview_index = 0
+        self._export_paths: dict = {}
+        self.export_btn: Optional[tk.Button] = None
 
         self._build_ui()
         self._poll_log()
@@ -79,6 +84,11 @@ class MainPage(tk.Frame):
                                    padx=14, pady=4, cursor="hand2", command=self._start_processing,
                                    state="disabled")
         self.start_btn.pack(side="left", padx=4)
+        self.export_btn = tk.Button(btn_frame, text="📤 导出视频", bg=SUCCESS_COLOR, fg="white",
+                                     font=("Microsoft YaHei", 10, "bold"), bd=0,
+                                     padx=14, pady=4, cursor="hand2", command=self._start_export,
+                                     state="disabled")
+        self.export_btn.pack(side="left", padx=4)
 
         # ── Main Content ──
         main = tk.Frame(self, bg=SURFACE_COLOR)
@@ -271,7 +281,8 @@ class MainPage(tk.Frame):
                 self.current_selected_frames = result.recommended_keyframes
                 self.ui_queue.put(("step", {"id": "3", "state": "done", "desc": f"选出 {len(result.recommended_keyframes)} 个关键帧"}))
 
-                self.ui_queue.put(("step", {"id": "4", "state": "done", "desc": "处理完成，可导出"}))
+                # Step 4: Video export
+                self._run_export()
                 self.ui_queue.put(("stats", {
                     "events": str(len(events)),
                     "keyframes": str(len(result.recommended_keyframes)),
@@ -284,6 +295,105 @@ class MainPage(tk.Frame):
 
         self.pipeline_thread = threading.Thread(target=worker, daemon=True)
         self.pipeline_thread.start()
+
+    def _run_export(self):
+        """Run the video export pipeline (step 4). Called from bg thread."""
+        try:
+            self.ui_queue.put(("step", {"id": "4", "state": "active", "desc": "生成视频中..."}))
+            self.ui_queue.put(("progress", {"step": "4", "current": 0, "total": 100}))
+
+            source_path = self.video_path.get()
+            metadata = self.current_metadata
+            events = self.current_intrusion_events
+            if not events:
+                self.ui_queue.put(("step", {"id": "4", "state": "done", "desc": "无入侵事件，跳过导出"}))
+                self.ui_queue.put(("progress", {"step": "4", "current": 100, "total": 100}))
+                return
+
+            # Build export directory structure
+            self.ui_queue.put(("progress", {"step": "4", "current": 10, "total": 100}))
+            export_paths = build_export_paths(self.app_config.output_path, source_path)
+            self._export_paths = export_paths
+            export_paths["root_dir"].mkdir(parents=True, exist_ok=True)
+            export_paths["master_dir"].mkdir(parents=True, exist_ok=True)
+            logging.info("导出目录: %s", export_paths["root_dir"])
+
+            # Build segments from intrusion events
+            self.ui_queue.put(("progress", {"step": "4", "current": 20, "total": 100}))
+            segments = build_segments_from_events(events, metadata.frame_count)
+            logging.info("生成 %d 个视频片段", len(segments))
+
+            # Generate master summary video
+            self.ui_queue.put(("step", {"id": "4", "state": "active", "desc": "生成汇总视频..."}))
+            self.ui_queue.put(("progress", {"step": "4", "current": 30, "total": 100}))
+            master_path = str(export_paths["master_file"])
+            generate_video_from_segments(source_path, segments, master_path, metadata)
+            logging.info("汇总视频已生成: %s", master_path)
+            self.ui_queue.put(("progress", {"step": "4", "current": 60, "total": 100}))
+
+            # Export individual event clips
+            self.ui_queue.put(("step", {"id": "4", "state": "active", "desc": "导出事件片段..."}))
+            event_files = export_intrusion_clips(
+                source_path, metadata, events,
+                export_paths["events_dir"],
+                export_paths["video_stem"],
+                export_paths["export_stamp"],
+            )
+            logging.info("已导出 %d 个事件片段", len(event_files))
+            self.ui_queue.put(("progress", {"step": "4", "current": 85, "total": 100}))
+
+            # Write manifest
+            write_export_manifest(
+                export_paths["root_dir"], export_paths["master_file"],
+                event_files, events, source_path,
+            )
+            self.ui_queue.put(("progress", {"step": "4", "current": 95, "total": 100}))
+
+            self.ui_queue.put(("step", {"id": "4", "state": "done",
+                                        "desc": f"导出完成: {len(events)} 事件, {len(event_files)} 片段"}))
+            self.ui_queue.put(("progress", {"step": "4", "current": 100, "total": 100}))
+            # Send export paths to UI for display and folder opening
+            self.ui_queue.put(("export_done", {"root_dir": str(export_paths["root_dir"]),
+                                                "master_file": master_path}))
+        except Exception as e:
+            logging.error("视频导出失败: %s", e)
+            self.ui_queue.put(("step", {"id": "4", "state": "done", "desc": f"导出失败: {e}"}))
+            self.ui_queue.put(("progress", {"step": "4", "current": 0, "total": 100}))
+
+    def _start_export(self):
+        """Handle export button click — re-export with current results."""
+        if not self.current_intrusion_events:
+            messagebox.showwarning("警告", "没有检测到入侵事件，无法导出")
+            return
+        if not self.video_path.get() or not self.current_metadata:
+            messagebox.showwarning("警告", "请先完成视频处理")
+            return
+        if self.pipeline_thread and self.pipeline_thread.is_alive():
+            messagebox.showwarning("警告", "请等待当前处理完成")
+            return
+        self._set_step_state("4", "active", "导出中...")
+        self.step_progress["4"].set(0)
+        self.export_btn.config(state="disabled")
+
+        def worker():
+            self._run_export()
+            self.ui_queue.put(("export_complete", {}))
+
+        self.pipeline_thread = threading.Thread(target=worker, daemon=True)
+        self.pipeline_thread.start()
+
+    def _open_output_folder(self, path: str):
+        """Open the output folder in the system file explorer."""
+        try:
+            folder = str(Path(path))
+            if os.name == "nt":
+                os.startfile(folder)
+            elif os.name == "posix":
+                import subprocess
+                subprocess.Popen(["xdg-open", folder])
+            logging.info("已打开输出文件夹: %s", folder)
+        except Exception as e:
+            logging.warning("无法打开输出文件夹: %s", e)
 
     def handle_ui_action(self, action: str, data: dict):
         """Called by the app's poll_queues to process UI updates from bg threads."""
@@ -307,7 +417,21 @@ class MainPage(tk.Frame):
         elif action == "done":
             self.status_text.set("处理完成")
             self.start_btn.config(state="normal")
+            if self.export_btn:
+                self.export_btn.config(state="normal")
             self._update_preview_if_available()
+        elif action == "export_done":
+            root_dir = data.get("root_dir", "")
+            self.stat_output.set(Path(root_dir).name if root_dir else "--")
+            self.status_extra.set(f"导出: {root_dir}" if root_dir else "")
+            # Auto-open output folder if configured
+            if self.app_config.auto_open_output and root_dir:
+                self._open_output_folder(root_dir)
+        elif action == "export_complete":
+            self.status_text.set("导出完成")
+            if self.export_btn:
+                self.export_btn.config(state="normal")
+            self.start_btn.config(state="normal")
         elif action == "error":
             messagebox.showerror("错误", f"处理失败: {data.get('msg', '')}")
             self.status_text.set("处理失败")
