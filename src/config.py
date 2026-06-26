@@ -27,16 +27,17 @@ DEFAULT_PERSON_WEIGHT = 0.35
 PROGRESS_POLL_MS = 120
 
 # ── UI Theme ────────────────────────────────────────
-ACCENT_COLOR = "#1a73e8"
-ACCENT_HOVER = "#1557b0"
-SUCCESS_COLOR = "#0ea854"
-WARNING_COLOR = "#e37400"
-SURFACE_COLOR = "#f0f2f5"
+ACCENT_COLOR = "#2563eb"
+ACCENT_HOVER = "#1d4ed8"
+SUCCESS_COLOR = "#16a34a"
+WARNING_COLOR = "#d97706"
+SURFACE_COLOR = "#f5f7fa"
 PANEL_COLOR = "#ffffff"
-TEXT_COLOR = "#333333"
-MUTED_COLOR = "#888888"
-BORDER_COLOR = "#e0e4e8"
+TEXT_COLOR = "#1e293b"
+MUTED_COLOR = "#64748b"
+BORDER_COLOR = "#e2e8f0"
 CARD_RADIUS = 10
+DANGER_COLOR = "#ef4444"
 
 
 @dataclass
@@ -58,6 +59,7 @@ class AppConfig:
     """Persistent application configuration."""
     output_path: str = ""
     temp_path: str = ""
+    camera_save_path: str = ""
     sample_stride: int = DEFAULT_SAMPLING_STRIDE
     intrusion_threshold: float = DEFAULT_INTRUSION_THRESHOLD
     min_event_duration: float = DEFAULT_MIN_EVENT_SECONDS
@@ -65,6 +67,7 @@ class AppConfig:
     person_weight: float = DEFAULT_PERSON_WEIGHT
     max_width: int = DEFAULT_ANALYSIS_WIDTH
     auto_open_output: bool = True
+    auto_export_video: bool = True
     remember_last_output: bool = True
 
     def __post_init__(self):
@@ -72,6 +75,8 @@ class AppConfig:
             self.output_path = str(OUTPUT_DIR)
         if not self.temp_path:
             self.temp_path = str(TEMP_DIR)
+        if not self.camera_save_path:
+            self.camera_save_path = str(APP_DIR / "saved_video")
 
 
 @dataclass
