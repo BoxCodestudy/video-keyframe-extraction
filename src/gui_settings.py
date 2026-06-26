@@ -47,6 +47,8 @@ class SettingsPage(tk.Frame):
         self.temp_var = tk.StringVar()
         self._add_path_row("输出文件默认路径", self.output_var, "所有处理结果将保存到此目录")
         self._add_path_row("临时文件路径", self.temp_var, "视频分解时的帧缓存目录")
+        self.camera_var = tk.StringVar()
+        self._add_path_row("摄像头录制保存路径", self.camera_var, "摄像头录制的视频文件自动保存到此目录")
 
         # ── Section: Parameters ──
         self._add_section("默认处理参数")
@@ -72,6 +74,10 @@ class SettingsPage(tk.Frame):
         self.auto_open_var = tk.BooleanVar()
         self.remember_var = tk.BooleanVar()
         tk.Checkbutton(pref_frame, text="处理完成后自动打开输出文件夹", variable=self.auto_open_var,
+                       bg=SURFACE_COLOR, font=("Microsoft YaHei", 10),
+                       activebackground=SURFACE_COLOR).pack(anchor="w", pady=2)
+        self.auto_export_var = tk.BooleanVar()
+        tk.Checkbutton(pref_frame, text="处理完成后自动导出视频到输出路径", variable=self.auto_export_var,
                        bg=SURFACE_COLOR, font=("Microsoft YaHei", 10),
                        activebackground=SURFACE_COLOR).pack(anchor="w", pady=2)
         tk.Checkbutton(pref_frame, text="启动时自动加载上次的输出路径", variable=self.remember_var,
@@ -124,6 +130,8 @@ class SettingsPage(tk.Frame):
         self.person_var.set(str(c.person_weight))
         self.auto_open_var.set(c.auto_open_output)
         self.remember_var.set(c.remember_last_output)
+        self.camera_var.set(c.camera_save_path)
+        self.auto_export_var.set(c.auto_export_video)
 
     def _save(self):
         try:
@@ -137,6 +145,8 @@ class SettingsPage(tk.Frame):
             self.app_config.person_weight = float(self.person_var.get())
             self.app_config.auto_open_output = self.auto_open_var.get()
             self.app_config.remember_last_output = self.remember_var.get()
+            self.app_config.camera_save_path = self.camera_var.get()
+            self.app_config.auto_export_video = self.auto_export_var.get()
         except ValueError:
             from tkinter import messagebox
             messagebox.showerror("错误", "参数格式不正确，请检查数值输入")

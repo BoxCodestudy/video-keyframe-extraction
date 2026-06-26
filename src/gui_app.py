@@ -31,6 +31,7 @@ class VideoProcessorApp:
         self.app_config = load_app_config()
         Path(self.app_config.output_path).mkdir(parents=True, exist_ok=True)
         Path(self.app_config.temp_path).mkdir(parents=True, exist_ok=True)
+        Path(self.app_config.camera_save_path).mkdir(parents=True, exist_ok=True)
 
         self.proc_config = ProcessingConfig(
             sample_stride=self.app_config.sample_stride,
