@@ -130,7 +130,7 @@ class MainPage(tk.Frame):
         preview_frame = tk.Frame(right_panel, bg=PANEL_COLOR, bd=0)
         preview_frame.pack(fill="both", expand=True, pady=(0, 4))
         self.preview_label = tk.Label(preview_frame, bg=PANEL_COLOR, anchor="center",
-                                       text="🎬\n拖拽视频文件到此处 或 点击\"选择视频\"开始\n支持 MP4 / AVI / MKV / MOV",
+                                       text="🎬\n拖拽视频文件到此处 或 点击\"视频来源\"开始\n支持 MP4 / AVI / MKV / MOV",
                                        fg=MUTED_COLOR, font=("Microsoft YaHei", 12))
         self.preview_label.pack(fill="both", expand=True, padx=20, pady=20)
         self.preview_label.bind("<MouseWheel>", self._on_preview_scroll)
@@ -254,11 +254,20 @@ class MainPage(tk.Frame):
             st = self.step_state[sid]
             if st == "done":
                 if sid == "4":
-                    self.progress_step_badge.config(bg=SUCCESS_COLOR, fg="white", text="✓")
-                    self.progress_label.config(text="处理完成")
-                    self.progress_step_hint.config(text="")
-                    self.main_progress["value"] = 100
-                    self.progress_pct.config(text="100%")
+                    # Check if export failed
+                    desc = self.step_desc["4"].get()
+                    if "失败" in desc:
+                        self.progress_step_badge.config(bg=DANGER_COLOR, fg="white", text="✕")
+                        self.progress_label.config(text="导出失败")
+                        self.progress_step_hint.config(text="")
+                        self.main_progress["value"] = 75
+                        self.progress_pct.config(text="75%")
+                    else:
+                        self.progress_step_badge.config(bg=SUCCESS_COLOR, fg="white", text="✓")
+                        self.progress_label.config(text="处理完成")
+                        self.progress_step_hint.config(text="")
+                        self.main_progress["value"] = 100
+                        self.progress_pct.config(text="100%")
                     return
                 continue
             elif st == "active":
