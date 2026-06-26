@@ -14,7 +14,7 @@ from PIL import Image, ImageTk
 from src.config import (AppConfig, ProcessingConfig, AnalysisResult, VideoMetadata,
                         IntrusionEvent, SURFACE_COLOR, PANEL_COLOR, TEXT_COLOR,
                         MUTED_COLOR, ACCENT_COLOR, SUCCESS_COLOR, WARNING_COLOR,
-                        BORDER_COLOR, PROGRESS_POLL_MS)
+                        BORDER_COLOR, DANGER_COLOR, PROGRESS_POLL_MS)
 from src.detection import detect_intrusion_events, map_events_to_image_files
 from src.features import CNNFeatureExtractor
 from src.keyframes import auto_select_keyframes_by_clustering
@@ -22,6 +22,7 @@ from src.video_io import (get_video_metadata, video_to_images,
                           generate_video_from_segments, build_segments_from_events,
                           export_intrusion_clips, build_export_paths, write_export_manifest)
 from src.utils import format_seconds, list_image_files
+from src.camera_recorder import CameraRecorder, CameraDialog
 
 
 class MainPage(tk.Frame):
@@ -65,45 +66,62 @@ class MainPage(tk.Frame):
 
     def _build_ui(self):
         # ── Top Bar ──
-        topbar = tk.Frame(self, bg=PANEL_COLOR)
+        topbar = tk.Frame(self, bg=PANEL_COLOR, height=52, bd=0, highlightthickness=0)
         topbar.pack(fill="x")
-        tk.Label(topbar, text="◈ 基于深度特征聚类的视频关键帧提取与事件检测系统", bg=PANEL_COLOR, fg=ACCENT_COLOR,
-                 font=("Microsoft YaHei", 13, "bold")).pack(side="left", padx=16, pady=10)
+        topbar.pack_propagate(False)
+        tk.Label(topbar, text="◈ 基于深度特征聚类的视频关键帧提取与事件检测系统",
+                 bg=PANEL_COLOR, fg=ACCENT_COLOR,
+                 font=("Microsoft YaHei", 13, "bold")).pack(side="left", padx=16, pady=12)
         btn_frame = tk.Frame(topbar, bg=PANEL_COLOR)
-        btn_frame.pack(side="right", padx=12, pady=8)
+        btn_frame.pack(side="right", padx=12, pady=10)
+
+        # ── Video source dropdown ──
+        self.src_menu_btn = tk.Menubutton(btn_frame, text="📁 视频来源 ▾",
+                                           bg=PANEL_COLOR, fg=TEXT_COLOR,
+                                           font=("Microsoft YaHei", 10),
+                                           bd=1, relief="solid", padx=10, pady=4,
+                                           cursor="hand2", activebackground="#f1f5f9",
+                                           activeforeground=TEXT_COLOR)
+        src_menu = tk.Menu(self.src_menu_btn, tearoff=0, bg=PANEL_COLOR, fg=TEXT_COLOR,
+                           font=("Microsoft YaHei", 10), activebackground="#eff6ff",
+                           activeforeground=ACCENT_COLOR)
+        src_menu.add_command(label="📂 从文件选择", command=self._select_video)
+        src_menu.add_command(label="🎥 从摄像头录制", command=self._open_camera)
+        self.src_menu_btn.config(menu=src_menu)
+        self.src_menu_btn.pack(side="left", padx=4)
+
         self.settings_btn = tk.Button(btn_frame, text="⚙ 设置", bg=PANEL_COLOR, fg=TEXT_COLOR,
                                       font=("Microsoft YaHei", 10), bd=1, relief="solid",
-                                      padx=10, pady=4, cursor="hand2", command=self.on_open_settings)
+                                      padx=10, pady=4, cursor="hand2",
+                                      activebackground="#f1f5f9", command=self.on_open_settings)
         self.settings_btn.pack(side="left", padx=4)
-        self.select_btn = tk.Button(btn_frame, text="📂 选择视频", bg=PANEL_COLOR, fg=WARNING_COLOR,
-                                    font=("Microsoft YaHei", 10, "bold"), bd=1, relief="solid",
-                                    padx=10, pady=4, cursor="hand2", command=self._select_video)
-        self.select_btn.pack(side="left", padx=4)
         self.start_btn = tk.Button(btn_frame, text="▶ 开始处理", bg=ACCENT_COLOR, fg="white",
                                    font=("Microsoft YaHei", 10, "bold"), bd=0,
-                                   padx=14, pady=4, cursor="hand2", command=self._start_processing,
-                                   state="disabled")
+                                   padx=14, pady=4, cursor="hand2",
+                                   activebackground=ACCENT_COLOR,
+                                   command=self._start_processing, state="disabled")
         self.start_btn.pack(side="left", padx=4)
-        self.export_btn = tk.Button(btn_frame, text="📤 导出视频", bg=SUCCESS_COLOR, fg="white",
+        self.export_btn = tk.Button(btn_frame, text="📤 导出", bg=SUCCESS_COLOR, fg="white",
                                      font=("Microsoft YaHei", 10, "bold"), bd=0,
-                                     padx=14, pady=4, cursor="hand2", command=self._start_export,
-                                     state="disabled")
+                                     padx=14, pady=4, cursor="hand2",
+                                     activebackground=SUCCESS_COLOR,
+                                     command=self._start_export, state="disabled")
         self.export_btn.pack(side="left", padx=4)
 
         # ── Main Content ──
         main = tk.Frame(self, bg=SURFACE_COLOR)
         main.pack(fill="both", expand=True, padx=8, pady=8)
 
-        # Left: Steps
-        left_panel = tk.Frame(main, bg=PANEL_COLOR, width=260)
+        # Left: Step indicators
+        left_panel = tk.Frame(main, bg=PANEL_COLOR, width=190)
         left_panel.pack(side="left", fill="y", padx=(0, 8))
         left_panel.pack_propagate(False)
-        tk.Label(left_panel, text="处理流程", bg=PANEL_COLOR, fg=MUTED_COLOR,
-                 font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", padx=14, pady=(12, 8))
+        tk.Label(left_panel, text="处理步骤", bg=PANEL_COLOR, fg=MUTED_COLOR,
+                 font=("Microsoft YaHei", 9, "bold")).pack(anchor="w", padx=12, pady=(12, 8))
         step_names = ["视频分解与采样", "入侵检测", "关键帧筛选", "视频重构"]
         self.step_frames = {}
         for i, name in enumerate(step_names, 1):
-            self.step_frames[str(i)] = self._create_step_card(left_panel, str(i), name)
+            self.step_frames[str(i)] = self._create_step_indicator(left_panel, str(i), name)
 
         # Right: Preview + Stats + Log
         right_panel = tk.Frame(main, bg=SURFACE_COLOR)
@@ -140,6 +158,34 @@ class MainPage(tk.Frame):
                                  height=8, bd=0, padx=8, pady=4)
         self.log_text.pack(fill="x")
 
+        # ── Unified progress bar ──
+        progress_frame = tk.Frame(right_panel, bg=PANEL_COLOR, bd=1, relief="solid",
+                                   highlightbackground=BORDER_COLOR)
+        progress_frame.pack(fill="x", pady=(4, 0), ipady=8)
+
+        progress_inner = tk.Frame(progress_frame, bg=PANEL_COLOR)
+        progress_inner.pack(fill="x", padx=14, pady=8)
+
+        self.progress_step_badge = tk.Label(progress_inner, text="—", bg=BORDER_COLOR, fg="white",
+                                             font=("Microsoft YaHei", 10, "bold"), width=3, height=1)
+        self.progress_step_badge.pack(side="left", padx=(0, 10))
+
+        self.progress_label = tk.Label(progress_inner, text="就绪", bg=PANEL_COLOR, fg=TEXT_COLOR,
+                                        font=("Microsoft YaHei", 10, "bold"))
+        self.progress_label.pack(side="left")
+
+        self.progress_step_hint = tk.Label(progress_inner, text="", bg=PANEL_COLOR, fg=MUTED_COLOR,
+                                            font=("Microsoft YaHei", 9))
+        self.progress_step_hint.pack(side="left", padx=(8, 0))
+
+        self.progress_pct = tk.Label(progress_inner, text="0%", bg=PANEL_COLOR, fg=ACCENT_COLOR,
+                                      font=("Microsoft YaHei", 14, "bold"))
+        self.progress_pct.pack(side="right", padx=(0, 4))
+
+        self.main_progress = ttk.Progressbar(progress_inner, orient="horizontal",
+                                              mode="determinate", maximum=100)
+        self.main_progress.pack(side="right", fill="x", expand=True, padx=(0, 12))
+
         # Bottom status bar
         bottombar = tk.Frame(self, bg=PANEL_COLOR, height=28, bd=0)
         bottombar.pack(fill="x", side="bottom")
@@ -151,47 +197,86 @@ class MainPage(tk.Frame):
         tk.Label(bottombar, textvariable=self.status_extra, bg=PANEL_COLOR, fg=MUTED_COLOR,
                  font=("Microsoft YaHei", 9)).pack(side="right", padx=12)
 
-    def _create_step_card(self, parent, step_id: str, name: str) -> tk.Frame:
-        card = tk.Frame(parent, bg=PANEL_COLOR, bd=1, relief="solid",
-                         highlightbackground=BORDER_COLOR, highlightcolor=BORDER_COLOR, highlightthickness=1)
-        card.pack(fill="x", padx=10, pady=4)
-        header = tk.Frame(card, bg=PANEL_COLOR)
-        header.pack(fill="x", padx=10, pady=(8, 2))
-        num_label = tk.Label(header, text=step_id, bg=BORDER_COLOR, fg=MUTED_COLOR,
-                             font=("Microsoft YaHei", 11, "bold"), width=3, height=1)
-        num_label.pack(side="left", padx=(0, 8))
-        tk.Label(header, text=name, bg=PANEL_COLOR, fg=TEXT_COLOR,
+    def _create_step_indicator(self, parent, step_id: str, name: str) -> tk.Frame:
+        """Create a compact step indicator with left color bar."""
+        outer = tk.Frame(parent, bg=BORDER_COLOR, bd=0, highlightthickness=0)
+        outer.pack(fill="x", padx=10, pady=3)
+        inner = tk.Frame(outer, bg=PANEL_COLOR, bd=0)
+        inner.pack(fill="x", padx=(3, 0), pady=0)
+
+        top_row = tk.Frame(inner, bg=PANEL_COLOR)
+        top_row.pack(fill="x", padx=8, pady=(6, 2))
+        num_label = tk.Label(top_row, text=step_id, bg=BORDER_COLOR, fg="white",
+                             font=("Microsoft YaHei", 10, "bold"), width=3, height=1)
+        num_label.pack(side="left", padx=(0, 10))
+        tk.Label(top_row, text=name, bg=PANEL_COLOR, fg=TEXT_COLOR,
                  font=("Microsoft YaHei", 10, "bold")).pack(side="left")
-        tk.Label(card, textvariable=self.step_desc[step_id], bg=PANEL_COLOR, fg=MUTED_COLOR,
-                 font=("Microsoft YaHei", 8), anchor="w").pack(fill="x", padx=10, pady=(0, 4))
-        progress = ttk.Progressbar(card, variable=self.step_progress[step_id], maximum=100)
-        progress.pack(fill="x", padx=10, pady=(0, 8))
-        card.num_label = num_label
-        card.progress_bar = progress
-        return card
+        desc_label = tk.Label(inner, textvariable=self.step_desc[step_id], bg=PANEL_COLOR,
+                              fg=MUTED_COLOR, font=("Microsoft YaHei", 8), anchor="w")
+        desc_label.pack(fill="x", padx=(44, 8), pady=(0, 6))
+
+        outer.num_label = num_label
+        outer.desc_label = desc_label
+        return outer
 
     def _add_stat(self, parent, col, var, label):
-        f = tk.Frame(parent, bg=PANEL_COLOR)
-        f.grid(row=0, column=col, sticky="ew", padx=12, pady=10)
-        tk.Label(f, textvariable=var, bg=PANEL_COLOR, fg=ACCENT_COLOR,
-                 font=("Microsoft YaHei", 16, "bold")).pack()
-        tk.Label(f, text=label, bg=PANEL_COLOR, fg=MUTED_COLOR,
-                 font=("Microsoft YaHei", 8)).pack()
+        card = tk.Frame(parent, bg=PANEL_COLOR, bd=1, relief="solid",
+                         highlightbackground=BORDER_COLOR, highlightthickness=0)
+        card.grid(row=0, column=col, sticky="ew", padx=6, pady=10, ipady=4)
+        tk.Label(card, textvariable=var, bg=PANEL_COLOR, fg=ACCENT_COLOR,
+                 font=("Microsoft YaHei", 18, "bold")).pack()
+        tk.Label(card, text=label, bg=PANEL_COLOR, fg=MUTED_COLOR,
+                 font=("Microsoft YaHei", 8)).pack(pady=(0, 4))
 
     def _set_step_state(self, step_id: str, state: str, desc: str = ""):
         self.step_state[step_id] = state
-        card = self.step_frames[step_id]
+        outer = self.step_frames[step_id]
+        num_label = outer.num_label
         if state == "done":
-            card.num_label.config(bg=SUCCESS_COLOR, fg="white", text="✓")
-            card.config(highlightbackground=SUCCESS_COLOR, highlightcolor=SUCCESS_COLOR)
+            num_label.config(bg=SUCCESS_COLOR, fg="white", text="✓")
+            outer.config(bg=SUCCESS_COLOR)
         elif state == "active":
-            card.num_label.config(bg=ACCENT_COLOR, fg="white", text=step_id)
-            card.config(highlightbackground=ACCENT_COLOR, highlightcolor=ACCENT_COLOR)
+            num_label.config(bg=ACCENT_COLOR, fg="white", text=step_id)
+            outer.config(bg=ACCENT_COLOR)
         else:
-            card.num_label.config(bg=BORDER_COLOR, fg=MUTED_COLOR, text=step_id)
-            card.config(highlightbackground=BORDER_COLOR, highlightcolor=BORDER_COLOR)
+            num_label.config(bg=BORDER_COLOR, fg="white", text=step_id)
+            outer.config(bg=BORDER_COLOR)
         if desc:
             self.step_desc[step_id].set(desc)
+        self._sync_unified_progress()
+
+    def _sync_unified_progress(self):
+        """Update the bottom unified progress bar from step states."""
+        step_names = {"1": "视频分解与采样", "2": "入侵检测", "3": "关键帧筛选", "4": "视频重构"}
+        step_base = {"1": 0, "2": 25, "3": 50, "4": 75}
+
+        for sid in ["4", "3", "2", "1"]:
+            st = self.step_state[sid]
+            if st == "done":
+                if sid == "4":
+                    self.progress_step_badge.config(bg=SUCCESS_COLOR, fg="white", text="✓")
+                    self.progress_label.config(text="处理完成")
+                    self.progress_step_hint.config(text="")
+                    self.main_progress["value"] = 100
+                    self.progress_pct.config(text="100%")
+                    return
+                continue
+            elif st == "active":
+                step_pct = self.step_progress[sid].get()
+                overall = step_base[sid] + int(25 * step_pct / 100)
+                self.progress_step_badge.config(bg=ACCENT_COLOR, fg="white", text=sid)
+                self.progress_label.config(text=step_names[sid])
+                self.progress_step_hint.config(text=f"步骤 {sid}/4")
+                self.main_progress["value"] = overall
+                self.progress_pct.config(text=f"{overall}%")
+                return
+
+        # Idle
+        self.progress_step_badge.config(bg=BORDER_COLOR, fg="white", text="—")
+        self.progress_label.config(text="就绪")
+        self.progress_step_hint.config(text="")
+        self.main_progress["value"] = 0
+        self.progress_pct.config(text="0%")
 
     def _toggle_log(self, event=None):
         if self.log_expanded.get():
@@ -219,6 +304,32 @@ class MainPage(tk.Frame):
             except Exception as e:
                 logging.error("读取视频失败: %s", e)
                 messagebox.showerror("错误", f"无法读取视频: {e}")
+
+    def _open_camera(self):
+        """Open the camera recording dialog."""
+        cameras = CameraRecorder.list_cameras()
+        if not cameras:
+            messagebox.showwarning("警告", "未检测到可用摄像头")
+            return
+        camera_index = cameras[0]["index"]
+
+        save_dir = self.app_config.camera_save_path
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+
+        def on_ready(video_path: str):
+            self.video_path.set(video_path)
+            logging.info("摄像头视频已加载: %s", video_path)
+            try:
+                self.current_metadata = get_video_metadata(video_path)
+                self.stat_output.set(Path(self.app_config.output_path).name)
+                self.status_extra.set(f"输出: {self.app_config.output_path}")
+                self.start_btn.config(state="normal")
+                self._update_preview_hint()
+            except Exception as e:
+                logging.error("读取摄像头视频失败: %s", e)
+                messagebox.showerror("错误", f"无法读取录制的视频: {e}")
+
+        CameraDialog(self, save_dir, on_ready, camera_index=camera_index)
 
     def _update_preview_hint(self):
         if self.current_metadata:
@@ -282,7 +393,12 @@ class MainPage(tk.Frame):
                 self.ui_queue.put(("step", {"id": "3", "state": "done", "desc": f"选出 {len(result.recommended_keyframes)} 个关键帧"}))
 
                 # Step 4: Video export
-                self._run_export()
+                if self.app_config.auto_export_video:
+                    self._run_export()
+                else:
+                    self.ui_queue.put(("step", {"id": "4", "state": "done",
+                                                "desc": "跳过（可在设置中开启自动导出）"}))
+                    self.ui_queue.put(("progress", {"step": "4", "current": 100, "total": 100}))
                 self.ui_queue.put(("stats", {
                     "events": str(len(events)),
                     "keyframes": str(len(result.recommended_keyframes)),
@@ -405,6 +521,7 @@ class MainPage(tk.Frame):
             total = data.get("total", 1)
             pct = (current / total * 100) if total > 0 else 0
             self.step_progress[sid].set(pct)
+            self._sync_unified_progress()
             if data.get("saved_count"):
                 self._set_step_state("1", "active", f"已保存 {data['saved_count']} 帧")
             if data.get("found_count") is not None and sid == "2":
