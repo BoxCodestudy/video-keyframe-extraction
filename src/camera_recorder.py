@@ -148,7 +148,7 @@ class CameraDialog(tk.Toplevel):
                  camera_index: int = 0):
         super().__init__(parent)
         self.title("摄像头录制")
-        self.geometry("720x560")
+        self.geometry("720x580")
         self.resizable(False, False)
         self.configure(bg="#0f172a")
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
@@ -156,18 +156,34 @@ class CameraDialog(tk.Toplevel):
         self.save_dir = save_dir
         self.on_video_ready = on_video_ready
         self._recorder = CameraRecorder(camera_index=camera_index, fps=RECORDING_FPS)
+        self._camera_ready = False
         self._elapsed_seconds = 0
         self._timer_id: Optional[str] = None
         self._recording_timer_id: Optional[str] = None
+        self._init_timer_id: Optional[str] = None
         self._preview_photo = None
 
         self._build_ui()
 
+        # Defer camera opening so the dialog renders first.
+        # cv2.VideoCapture.open() blocks 2-5 s on Windows; doing it
+        # synchronously in __init__ freezes the half-drawn window.
+        self._status_label.config(text="● 正在连接摄像头...", fg="#fbbf24")
+        self._init_timer_id = self.after(200, self._init_camera, camera_index)
+
+    def _init_camera(self, camera_index: int):
+        """Open the camera after the dialog is fully painted."""
         if not self._recorder.open(camera_index):
             self._status_label.config(text="⚠ 无法打开摄像头", fg="#ef4444")
-        else:
-            self._status_label.config(text="● 摄像头就绪", fg="#22c55e")
-            self._start_preview_loop()
+            return
+
+        self._camera_ready = True
+        w, h = self._recorder.resolution
+        self._info_label.config(
+            text=f"📐 {w}×{h}  ⚡ {RECORDING_FPS:.0f} fps  💾 {self.save_dir}  📝 MP4"
+        )
+        self._status_label.config(text="● 摄像头就绪", fg="#22c55e")
+        self._start_preview_loop()
 
     def _build_ui(self):
         # ── Title bar ──
@@ -181,10 +197,12 @@ class CameraDialog(tk.Toplevel):
 
         # ── Preview area ──
         preview_frame = tk.Frame(self, bg="#1e293b", bd=2, relief="solid",
-                                  highlightbackground="#334155", highlightthickness=1)
-        preview_frame.pack(fill="both", expand=True, padx=16, pady=8)
+                                  highlightbackground="#334155", highlightthickness=1,
+                                  height=300)
+        preview_frame.pack(fill="both", expand=True, padx=16, pady=(8, 4))
+        preview_frame.pack_propagate(False)  # keep minimum height for the preview
         self._preview_label = tk.Label(preview_frame, bg="#1e293b", anchor="center",
-                                        text="📹\n摄像头预览区域", fg="#475569",
+                                        text="📹\n摄像头预览区域\n\n正在连接摄像头...", fg="#64748b",
                                         font=("Microsoft YaHei", 14))
         self._preview_label.pack(fill="both", expand=True)
 
@@ -193,9 +211,13 @@ class CameraDialog(tk.Toplevel):
                                         font=("Microsoft YaHei", 11, "bold"))
         self._rec_indicator.place(relx=1.0, x=-12, y=8, anchor="ne")
 
+        # ── Separator ──
+        sep = tk.Frame(self, bg="#1e3a5f", height=2)
+        sep.pack(fill="x", padx=16, pady=(0, 4))
+
         # ── Controls ──
         ctrl_frame = tk.Frame(self, bg="#0f172a")
-        ctrl_frame.pack(fill="x", padx=16, pady=(8, 4))
+        ctrl_frame.pack(fill="x", padx=16, pady=(4, 4))
         btn_frame = tk.Frame(ctrl_frame, bg="#0f172a")
         btn_frame.pack()
         self._rec_btn = tk.Button(btn_frame, text="🔴 开始录制", bg=DANGER_COLOR, fg="white",
@@ -203,10 +225,10 @@ class CameraDialog(tk.Toplevel):
                                    padx=20, pady=8, cursor="hand2", command=self._toggle_recording,
                                    activebackground="#dc2626")
         self._rec_btn.pack(side="left", padx=6)
-        self._cancel_btn = tk.Button(btn_frame, text="✕ 取消", bg="#334155", fg="#94a3b8",
+        self._cancel_btn = tk.Button(btn_frame, text="✕ 取消", bg="#475569", fg="white",
                                       font=("Microsoft YaHei", 11), bd=0,
                                       padx=20, pady=8, cursor="hand2", command=self._on_cancel,
-                                      activebackground="#475569")
+                                      activebackground="#64748b")
         self._cancel_btn.pack(side="left", padx=6)
 
         # ── Info row ──
@@ -235,11 +257,13 @@ class CameraDialog(tk.Toplevel):
         self._timer_id = self.after(50, self._start_preview_loop)
 
     def _toggle_recording(self):
+        if not self._camera_ready:
+            return
         if not self._recorder.is_recording():
             self._recorder.start_recording(self.save_dir)
             self._elapsed_seconds = 0
-            self._rec_btn.config(text="⏹ 停止录制", bg="#334155", fg="white",
-                                 activebackground="#475569")
+            self._rec_btn.config(text="⏹ 停止录制", bg="#475569", fg="white",
+                                 activebackground="#64748b")
             self._rec_indicator.config(text="● 录制中 00:00")
             self._update_recording_timer()
         else:
@@ -256,6 +280,9 @@ class CameraDialog(tk.Toplevel):
 
     def _cleanup(self, call_callback: bool = True):
         """Common cleanup: stop recorder, cancel timers, destroy dialog."""
+        if self._init_timer_id:
+            self.after_cancel(self._init_timer_id)
+            self._init_timer_id = None
         if self._recorder.is_recording():
             self._recorder.stop_recording()
         self._recorder.release()
